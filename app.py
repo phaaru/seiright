@@ -21,7 +21,7 @@ model = genai.GenerativeModel(
     generation_config=generation_config,
 )
 
-async def process_compliance_check(website_url, compliance_url, compliance_text):
+async def process_compliance_check(website_url, compliance_url, compliance_text, additional_website_text):
     """
     Process websites and check compliance using Gemini API with progressive updates
     """
@@ -33,30 +33,35 @@ async def process_compliance_check(website_url, compliance_url, compliance_text)
     main_text_result = await scraper.get_text_only(website_url)
     if not main_text_result['success']:
         yield None, "Error processing main website text", None, "Failed to process website"
-        return  # Early return without value
+        return
+
+    # Combine scraped text with additional text if provided
+    website_content = main_text_result['text_content']
+    if additional_website_text:
+        website_content = f"{website_content}\n\nAdditional Website Content:\n{additional_website_text}"
     
-    # Yield the first update with website text
-    yield None, main_text_result['text_content'], None, "Processing..."
+    # Yield the first update with combined website text
+    yield None, website_content, None, "Processing..."
     
     progress(0.25, desc="Getting compliance text...")
     # Get compliance text
     compliance_result = await scraper.get_text_only(compliance_url)
     if not compliance_result['success']:
-        yield None, main_text_result['text_content'], "Error processing compliance website", "Failed to process compliance website"
+        yield None, website_content, "Error processing compliance website", "Failed to process compliance website"
         return  # Early return without value
     
     # Yield update with compliance text
-    yield None, main_text_result['text_content'], compliance_result['text_content'], "Processing..."
+    yield None, website_content, compliance_result['text_content'], "Processing..."
     
     progress(0.5, desc="Capturing screenshot...")
     # Get screenshot (takes longer)
     main_screenshot_result = await scraper.get_screenshot_only(website_url)
     if not main_screenshot_result['success']:
-        yield None, main_text_result['text_content'], compliance_result['text_content'], "Error processing screenshot"
+        yield None, website_content, compliance_result['text_content'], "Error processing screenshot"
         return  # Early return without value
     
     # Yield update with screenshot
-    yield main_screenshot_result['screenshot_path'], main_text_result['text_content'], compliance_result['text_content'], "Analyzing..."
+    yield main_screenshot_result['screenshot_path'], website_content, compliance_result['text_content'], "Analyzing..."
 
     try:
         progress(0.75, desc="Analyzing compliance...")
@@ -79,7 +84,7 @@ async def process_compliance_check(website_url, compliance_url, compliance_text)
         # Final yield with complete results
         yield (
             main_screenshot_result['screenshot_path'],
-            main_text_result['text_content'],
+            website_content,
             compliance_result['text_content'],
             response.text
         )
@@ -87,7 +92,7 @@ async def process_compliance_check(website_url, compliance_url, compliance_text)
     except Exception as e:
         yield (
             main_screenshot_result['screenshot_path'],
-            main_text_result['text_content'],
+            website_content,
             compliance_result['text_content'],
             f"Error in Gemini API processing: {str(e)}"
         )
@@ -103,13 +108,18 @@ with gr.Blocks(title="Website Compliance Checker") as demo:
                 label="Website to check Compliance for",
                 placeholder="Enter website URL (e.g., https://example.com)"
             )
+            additional_website_text = gr.Textbox(
+                label="Additional Website Content (Optional)",
+                placeholder="Enter any additional website content to analyze",
+                lines=5
+            )
             gr.Markdown("Compliance Information")
             compliance_url = gr.Textbox(
                 label="Compliance Documentation Website",
                 placeholder="Enter compliance documentation URL"
             )
             compliance_text = gr.Textbox(
-                label="Compliance Text",
+                label="Additional Compliance Text (Optional)",
                 placeholder="Enter compliance requirements",
                 lines=3
             )
@@ -140,14 +150,13 @@ with gr.Blocks(title="Website Compliance Checker") as demo:
     # Handle submission
     submit_btn.click(
         fn=process_compliance_check,
-        inputs=[website_url, compliance_url, compliance_text],
+        inputs=[website_url, compliance_url, compliance_text, additional_website_text],
         outputs=[website_image, website_text, compliance_doc, compliance_result],
         show_progress=True
     )
 
 if __name__ == "__main__":
-    port = int(os.getenv('PORT', 7860))
+    # port = int(os.getenv('PORT', 7860))
     demo.launch(
-        server_name="0.0.0.0", 
-        server_port=port
+        server_name="0.0.0.0"
     )

@@ -1,0 +1,9 @@
+gradio
+selenium
+beautifulsoup4
+Pillow
+google-generativeai
+python-dotenv
+asyncio
+aiohttp
+urllib3
